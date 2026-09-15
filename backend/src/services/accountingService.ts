@@ -129,6 +129,19 @@ export class AccountingService {
     return row;
   }
 
+  // Bump activity_version for each affected month INSIDE the write transaction,
+  // after the activity mutation. A concurrent close holding/bidding for the same
+  // period row lock observes the bump and aborts with PERIOD_CLOSE_CONFLICT.
+  async bumpActivityVersionOnRunner(queryRunner: QueryRunner, periods: AccountingPeriod[]) {
+    for (const periodRow of periods) {
+      await queryRunner.query(
+        `UPDATE accounting_periods SET activity_version = activity_version + 1, updated_at = NOW(3) WHERE id = ?`,
+        [Number(periodRow.id)]
+      );
+      periodRow.activityVersion = Number(periodRow.activityVersion) + 1;
+    }
+  }
+
   // Used by the activity write path: reject if any guarded month is closed.
   assertWritable(periods: AccountingPeriod[], action: string) {
     const closed = periods.find((period) => period.status === PeriodStatus.CLOSED);
@@ -150,16 +163,31 @@ export class AccountingService {
     const start = `${period}-01`;
     const end = dayjs(start).endOf('month').format('YYYY-MM-DD');
 
+    // Baseline taken BEFORE acquiring the lock. A same-month activity write that
+    // commits while we contend for the lock bumps activity_version; after we get
+    // the lock the mismatch makes close abort (409) without writing a snapshot or
+    // touching activities, so close and the write can never both succeed.
+    const baselineRow = await this.periodRepo.findOne({ where: { period } });
+    const baselineActivityVersion = baselineRow ? Number(baselineRow.activityVersion) : 0;
+
     return this.runWithPeriodLocks([period], async ({ queryRunner, periods }) => {
       const periodRow = periods[0];
       if (periodRow.status === PeriodStatus.CLOSED) {
         logTemplate('warn', 'PERIOD_CLOSE_FAILED', { period, field: PERIOD_ERROR_FIELDS.STATUS, reason: 'already closed' });
         throw new AppError(ErrorCodes.PERIOD_ALREADY_CLOSED, `AccountingPeriod[period=${period}] close failed: already closed at version ${periodRow.currentVersion}`, HttpStatus.CONFLICT);
       }
+      if (Number(periodRow.activityVersion) !== baselineActivityVersion) {
+        logTemplate('warn', 'PERIOD_CLOSE_FAILED', { period, field: PERIOD_ERROR_FIELDS.ACTIVITY_VERSION, reason: 'concurrent activity write committed first' });
+        throw new AppError(
+          ErrorCodes.PERIOD_CLOSE_CONFLICT,
+          `AccountingPeriod[period=${period}] close failed: a concurrent activity write committed first (activity_version ${baselineActivityVersion} -> ${periodRow.activityVersion}); reload and retry`,
+          HttpStatus.CONFLICT
+        );
+      }
       const version = Number(periodRow.currentVersion) + 1;
 
-      // Aggregation runs AFTER the lock is held, so any writer that committed
-      // while waiting for the lock is included; blocked writers see closed.
+      // Lock is held and activity_version matched the baseline, so no same-month
+      // write committed during contention; it is safe to freeze the month now.
       const users = await queryRunner.manager.find(User, { order: { id: 'ASC' } });
       const activities = await queryRunner.manager.find(Activity, {
         where: { recordDate: Between(start, end) },
@@ -466,7 +494,16 @@ export class AccountingService {
       return this.serializeSnapshot(snapshot, period, start, end);
     }
 
-    // Open (or never-closed) period: member sees live, not frozen numbers.
+    // Open (or never-closed) month, and no explicit historical version: return
+    // LIVE data routed through the same segment reader the dashboard uses, so a
+    // reopened period immediately agrees with the dashboard.
+    const rows = await this.readUserRows(userId, start, end);
+    const byCategory = emptyByCategory();
+    let total = 0;
+    rows.forEach((row) => {
+      byCategory[row.category] = Number((byCategory[row.category] + Number(row.carbonValue)).toFixed(2));
+      total += Number(row.carbonValue);
+    });
     return {
       period,
       status: PeriodStatus.OPEN,
@@ -474,10 +511,10 @@ export class AccountingService {
       version: Number(periodRow?.currentVersion || 0),
       start,
       end,
-      activityCount: 0,
-      totalCarbon: 0,
-      byCategory: emptyByCategory(),
-      detail: []
+      activityCount: rows.length,
+      totalCarbon: Number(total.toFixed(2)),
+      byCategory,
+      detail: rows
     };
   }
 

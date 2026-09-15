@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
   period CHAR(7) NOT NULL,                          -- 'YYYY-MM' calendar month
   status ENUM('open','closed') NOT NULL DEFAULT 'open',
   current_version INT NOT NULL DEFAULT 0,
+  activity_version INT NOT NULL DEFAULT 0,           -- bumped by every committed activity write in that month (close race guard)
   closed_by BIGINT NULL,
   closed_at TIMESTAMP NULL,
   reopen_reason VARCHAR(255) NULL,

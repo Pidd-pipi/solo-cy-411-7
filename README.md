@@ -143,7 +143,12 @@ npm run dev
 | `GET /accounting/periods/:period/summaries?version=` | admin | 全成员汇总（不含明细） |
 | `GET /accounting/periods/:period/versions` | admin | 历史版本列表 |
 
-**并发保证**：结账与同期活动写入共用同一把账期行锁。两者都在**一个固定连接的事务**里先 `INSERT IGNORE` 账期行、再 `SELECT ... FOR UPDATE` 取锁：活动写事务在改动 `activities` 前先拿到该月 X 锁并持有到提交，结账在聚合前抢同一把锁。因此无论是“结账先提交”还是“旧日期写入在结账提交后才提交”，两者都**恰好一个成功**——锁账落库后不可能再写进旧日期活动，从根上避免汇总、目标、排行互相矛盾。首次结账的 gap-lock 死锁（MySQL errno 1213/1205）由有限次重试收敛。
+**并发保证（结账与同期写入只允许一个成功）**：结账与活动写入都在**一个固定连接的事务**里先 `INSERT IGNORE` 账期行、再 `SELECT ... FOR UPDATE` 取同一把账期行锁，并持有到提交：
+
+- **结账先提交 → 写入拒绝**：写事务在 `FOR UPDATE` 处等待，结账提交后读到 `closed`，直接回滚（不插入/改动任何活动），返回 `409 PERIOD_CLOSED`。
+- **写入先提交 → 结账拒绝**：`accounting_periods.activity_version` 由每次成功的活动写入在同一事务内 +1。结账在取锁**前**记录基线版本，取锁后若发现该月 `activity_version` 已变化，说明有写入抢先提交，立即中止并回滚——**不生成、不替换任何快照**，返回 `409 PERIOD_CLOSE_CONFLICT` 并提示「有并发活动写入先提交，请刷新重试」。
+
+因此无论谁先提交，两者恰好一个成功，锁账落库后不可能再混入旧日期活动，汇总 / 目标 / 排行不会互相矛盾。首次结账的 gap-lock 死锁（MySQL errno 1213/1205）由有限次重试收敛。
 
 **已存在数据库升级**：新表已写入 `database/init.sql`（仅对全新数据卷生效）。已初始化的命名卷请执行幂等脚本：
 

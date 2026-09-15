@@ -16,6 +16,9 @@ export class AccountingPeriod {
   @Column({ name: 'current_version', type: 'int', default: 0 })
   currentVersion!: number;
 
+  @Column({ name: 'activity_version', type: 'int', default: 0 })
+  activityVersion!: number;
+
   @Column({ name: 'closed_by', type: 'bigint', nullable: true })
   closedBy!: number | null;
 

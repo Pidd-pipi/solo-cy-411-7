@@ -69,6 +69,7 @@ export class ActivityService {
         note: input.note || null
       });
       const saved = await queryRunner.manager.save(activity);
+      await this.accountingService.bumpActivityVersionOnRunner(queryRunner, periods);
       logTemplate('info', 'ACTIVITY_CREATE_SUCCESS', { id: saved.id, carbonValue });
       return { message: Messages.ACTIVITY_CREATED, activity: saved };
     });
@@ -121,6 +122,7 @@ export class ActivityService {
       activity.recordDate = finalDate;
       activity.note = input.note ?? activity.note;
       const saved = await queryRunner.manager.save(activity);
+      await this.accountingService.bumpActivityVersionOnRunner(queryRunner, lockedPeriods);
       logTemplate('info', 'ACTIVITY_UPDATE_SUCCESS', { id: saved.id, carbonValue });
       return { message: Messages.ACTIVITY_UPDATED, activity: saved };
     });
@@ -146,6 +148,7 @@ export class ActivityService {
       }
       this.accountingService.assertWritable(lockedPeriods, 'Activity delete');
       await queryRunner.manager.remove(activity);
+      await this.accountingService.bumpActivityVersionOnRunner(queryRunner, lockedPeriods);
       logTemplate('info', 'ACTIVITY_DELETE_SUCCESS', { id });
       return { message: Messages.ACTIVITY_DELETED };
     });

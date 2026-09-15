@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
   period CHAR(7) NOT NULL,                          -- 'YYYY-MM' calendar month
   status ENUM('open','closed') NOT NULL DEFAULT 'open',
   current_version INT NOT NULL DEFAULT 0,
+  activity_version INT NOT NULL DEFAULT 0,           -- bumped by every committed activity write in that month (close race guard)
   closed_by BIGINT NULL,
   closed_at TIMESTAMP NULL,
   reopen_reason VARCHAR(255) NULL,
@@ -42,3 +43,17 @@ CREATE TABLE IF NOT EXISTS accounting_snapshots (
   CONSTRAINT fk_snapshot_period FOREIGN KEY (period_id) REFERENCES accounting_periods(id) ON DELETE CASCADE,
   CONSTRAINT fk_snapshot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- Idempotent column add for environments that already had the first 002 schema.
+SET @add_activity_version := (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE accounting_periods ADD COLUMN activity_version INT NOT NULL DEFAULT 0 AFTER current_version',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'accounting_periods'
+    AND COLUMN_NAME = 'activity_version'
+);
+PREPARE stmt FROM @add_activity_version;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
