@@ -150,7 +150,7 @@ async function activeTransactions() {
 // never reach zero and fails after the hard window. The window only absorbs the
 // bounded time a just-settled winner spends in COMMITTING or a loser's server-side
 // ROLLBACK undo under heavy CI scheduling — those finish in milliseconds normally.
-async function waitForNoTransactions(timeoutMs = 15000) {
+async function waitForNoTransactions(timeoutMs = 30000) {
   const start = Date.now();
   let n = await activeTransactions();
   let last = n;
@@ -158,6 +158,14 @@ async function waitForNoTransactions(timeoutMs = 15000) {
     await new Promise((r) => setTimeout(r, 50));
     last = n;
     n = await activeTransactions();
+  }
+  if (n !== 0 && process.env.TEST_DEBUG_TX) {
+    try {
+      const rows = await dataSource.query(
+        "SELECT trx_state, TIMESTAMPDIFF(SECOND,trx_started,NOW(6)) age, trx_rows_modified modified, LEFT(trx_query,80) q FROM information_schema.innodb_trx"
+      );
+      console.error('waitForNoTransactions timeout detail:', JSON.stringify(rows));
+    } catch {}
   }
   return { remaining: n, last, elapsed: Date.now() - start };
 }

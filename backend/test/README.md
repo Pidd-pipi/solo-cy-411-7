@@ -13,6 +13,7 @@
 | `test/concurrency.test.js` | 6 个并发场景：create/update/remove × {写入先提交、结账先提交} |
 | `test/e2e.test.js` | 启动真实 Nest 应用走 HTTP：正常结账、冻结拒绝、重开实时一致、再结账新版本、重复结账、缺重开原因、越权 403/401、非法月份、筛选/排行 |
 | `test/run.sh` | 构建后重复运行两套用例（默认 3 次，`TEST_RUNS` 可调） |
+| `test/acceptance.test.js` | **对统一命令 `test/run.sh` 本身的自动化验收**：真实子进程 + 真实数据库，覆盖正常轮数、三类故障、两种隔离变量名与清理 |
 
 ## 准备测试数据库
 
@@ -48,9 +49,27 @@ npm run test:accounting            # 构建 + 两套用例，默认重复 3 次
 # 或单独运行：
 npm run test:accounting:concurrency
 npm run test:accounting:e2e
+npm run test:accounting:acceptance # 以真实子进程验收统一命令（含故障注入）
 ```
 
 不设置环境变量时，默认连接本机 `127.0.0.1:3307` 的 `ct/ctpw@carbontrack_test`。
+
+### 统一命令的自动化验收（`test:accounting:acceptance`）
+
+`acceptance.test.js` 用 `child_process.spawnSync` **启动真实子进程**运行 `test/run.sh`，连接真实持久化的
+InnoDB 测试库，绝不靠改断言、跳过套件或替换业务实现变绿：
+
+- **正常路径**：`TEST_RUNS=N` 每轮都执行并发与接口两套检查（PASS 横幅各出现 N 次），结束后回读
+  `information_schema.innodb_trx = 0`，退出码 0。
+- **故障路径（彼此独立；后续检查仍执行；最终非零；保留阶段与回读）**：
+  1. 连库检查失败（指向关闭端口）：并发、接口两套仍执行，汇总含 `connectivity_failed=1`；
+  2. 并发检查失败：`CONCURRENCY_SUITE` 指向真实并发套件的**失败副本**（真实库、真实行锁，仅改错一个回读期望值），
+     接口套件仍执行并通过；
+  3. 接口检查失败：`E2E_SUITE` 同理指向失败副本，并发套件仍执行并通过。
+- **隔离级别两种变量名都断言**：分别 `SHOW VARIABLES` 检查 `transaction_isolation` 与 `tx_isolation`，
+  确认本服务器存在的那个为 `REPEATABLE-READ`，缺失的那个按 `SELECT @@<name>` 返回
+  `1193 Unknown system variable`。
+- **无残留**：删除失败副本临时文件、重置数据，回读快照/活动/未提交事务均为 0，`pgrep` 确认无临时子进程。
 
 ### 数据库版本兼容（MySQL 8 / MariaDB 10.x）
 

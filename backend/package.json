@@ -10,6 +10,7 @@
     "lint": "eslint \"src/**/*.ts\"",
     "test:accounting:concurrency": "nest build && node test/concurrency.test.js",
     "test:accounting:e2e": "nest build && node test/e2e.test.js",
+    "test:accounting:acceptance": "node test/acceptance.test.js",
     "test:accounting": "bash test/run.sh"
   },
   "dependencies": {

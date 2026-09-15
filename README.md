@@ -55,7 +55,8 @@ npm run dev
 ```bash
 cd backend
 export TEST_DB_HOST=127.0.0.1 TEST_DB_PORT=3306 TEST_DB_USER=carbontrack_test TEST_DB_PASSWORD=carbontrack_test_pwd TEST_DB_NAME=carbontrack_test
-npm run test:accounting        # 构建并重复运行（TEST_RUNS 可调次数）
+npm run test:accounting            # 构建并重复运行（TEST_RUNS 可调次数）
+npm run test:accounting:acceptance # 以真实子进程验收统一命令：正常轮数、连库/并发/接口三类故障、两种隔离变量名、无残留
 ```
 
 ## 技术栈
