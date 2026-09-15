@@ -48,6 +48,16 @@ npm run dev
 
 本地开发时前端 Vite 会把 `/api` 代理到 `http://localhost:19411`。生产 Docker 中由 Nginx 将 `/api/` 反向代理到 `http://backend:3000/`，前端代码不硬编码 localhost。
 
+### 碳账期并发回归测试
+
+`backend/test/` 提供可重复运行的回归测试，**必须连真实 InnoDB（MySQL 8 / MariaDB 10.11）**：用连接池中独立的连接制造“同月结账 vs 活动增删改”的真实锁竞争，覆盖 create/update/remove 的两个先后顺序，并回读断言失败方返回明确冲突（`PERIOD_CLOSE_CONFLICT` / `PERIOD_CLOSED`）、失败事务不产生快照也不改动活动；另含正常结账、冻结拒绝、重开后与仪表盘实时一致、再结账新版本、重复结账、缺重开原因、越权 403/401、非法月份、筛选与排行等 E2E 用例。准备与运行方式见 [`backend/test/README.md`](backend/test/README.md)：
+
+```bash
+cd backend
+export TEST_DB_HOST=127.0.0.1 TEST_DB_PORT=3306 TEST_DB_USER=carbontrack_test TEST_DB_PASSWORD=carbontrack_test_pwd TEST_DB_NAME=carbontrack_test
+npm run test:accounting        # 构建并重复运行（TEST_RUNS 可调次数）
+```
+
 ## 技术栈
 
 | 层级 | 技术 |

@@ -9,7 +9,7 @@ import { Activity } from '../models/activity';
 import { AppError } from '../utils/AppError';
 import { calculateCarbonValue } from '../utils/carbonCalculator';
 import { logTemplate } from '../utils/logger';
-import { AccountingService, monthOf } from './accountingService';
+import { AccountingService, monthOf, PeriodGates } from './accountingService';
 import { FactorService } from './factorService';
 import { UserService } from './userService';
 
@@ -43,7 +43,7 @@ export class ActivityService {
     return this.accountingService.readAllRowsAcrossClosedMonths(userId, category);
   }
 
-  async create(userId: number, input: ActivityInput) {
+  async create(userId: number, input: ActivityInput, gates?: PeriodGates) {
     logTemplate('info', 'ACTIVITY_CREATE_START', { userId, category: input.category, subType: input.subType });
     if (!Object.values(ActivityCategory).includes(input.category)) {
       logTemplate('warn', 'ACTIVITY_CREATE_FAILED', { id: 0, field: 'Activity.category', reason: 'invalid enum' });
@@ -72,10 +72,10 @@ export class ActivityService {
       await this.accountingService.bumpActivityVersionOnRunner(queryRunner, periods);
       logTemplate('info', 'ACTIVITY_CREATE_SUCCESS', { id: saved.id, carbonValue });
       return { message: Messages.ACTIVITY_CREATED, activity: saved };
-    });
+    }, gates);
   }
 
-  async update(userId: number, id: number, input: Partial<ActivityInput>) {
+  async update(userId: number, id: number, input: Partial<ActivityInput>, gates?: PeriodGates) {
     logTemplate('info', 'ACTIVITY_UPDATE_START', { id, fields: Object.keys(input).join(',') });
 
     // Pre-read (no lock) only to learn the candidate months to guard.
@@ -125,10 +125,10 @@ export class ActivityService {
       await this.accountingService.bumpActivityVersionOnRunner(queryRunner, lockedPeriods);
       logTemplate('info', 'ACTIVITY_UPDATE_SUCCESS', { id: saved.id, carbonValue });
       return { message: Messages.ACTIVITY_UPDATED, activity: saved };
-    });
+    }, gates);
   }
 
-  async remove(userId: number, id: number) {
+  async remove(userId: number, id: number, gates?: PeriodGates) {
     const pre = await this.activityRepo.findOne({ where: { id, userId } });
     if (!pre) {
       throw new AppError(ErrorCodes.ACTIVITY_NOT_FOUND, `Activity[id=${id}] delete failed: id not found`, HttpStatus.NOT_FOUND);
@@ -151,7 +151,7 @@ export class ActivityService {
       await this.accountingService.bumpActivityVersionOnRunner(queryRunner, lockedPeriods);
       logTemplate('info', 'ACTIVITY_DELETE_SUCCESS', { id });
       return { message: Messages.ACTIVITY_DELETED };
-    });
+    }, gates);
   }
 
   async summarize(userId: number, start: string, end: string) {

@@ -26,6 +26,14 @@ export interface PeriodLockContext {
   periods: AccountingPeriod[];
 }
 
+// Optional synchronization hooks. They are only ever supplied by the regression
+// suite to pause a transaction while it HOLDS the period row lock, which is how
+// the tests create real cross-connection interleavings. In production no gates
+// are passed and every hook is a no-op.
+export interface PeriodGates {
+  afterPeriodLocked?: (periods: AccountingPeriod[]) => Promise<void> | void;
+}
+
 const LOCK_RETRY_ATTEMPTS = 3;
 const LOCK_RETRY_DELAY_MS = 30;
 const LOCK_ERRNOS = [1213, 1205];
@@ -76,7 +84,7 @@ export class AccountingService {
   // can never both succeed (see runWithPeriodLocks retry for the first-close gap
   // lock race).
   // ---------------------------------------------------------------------------
-  async runWithPeriodLocks<T>(periodsInput: string[], fn: (ctx: PeriodLockContext) => Promise<T>): Promise<T> {
+  async runWithPeriodLocks<T>(periodsInput: string[], fn: (ctx: PeriodLockContext) => Promise<T>, gates: PeriodGates = {}): Promise<T> {
     const periods = Array.from(new Set(periodsInput.map((p) => this.validatePeriod(p)))).sort();
     let lastError: unknown;
 
@@ -89,6 +97,9 @@ export class AccountingService {
         for (const period of periods) {
           locked.push(await this.lockPeriodOnRunner(queryRunner, period, attempt));
         }
+        // Pause while holding the lock so the regression suite can start the
+        // contending operation on a separate connection. No-op in production.
+        await gates.afterPeriodLocked?.(locked);
         const result = await fn({ queryRunner, periods: locked });
         await queryRunner.commitTransaction();
         return result;
@@ -158,7 +169,7 @@ export class AccountingService {
   // ---------------------------------------------------------------------------
   // Admin: close / reopen
   // ---------------------------------------------------------------------------
-  async close(periodInput: string, adminUserId: number) {
+  async close(periodInput: string, adminUserId: number, gates: PeriodGates = {}) {
     const period = this.validatePeriod(periodInput);
     const start = `${period}-01`;
     const end = dayjs(start).endOf('month').format('YYYY-MM-DD');
@@ -260,7 +271,7 @@ export class AccountingService {
         end,
         memberCount: users.length
       };
-    });
+    }, gates);
   }
 
   async reopen(periodInput: string, reason: string | undefined, adminUserId: number) {
