@@ -1,5 +1,6 @@
 import { ActivityCategory } from './activity';
 import { GoalStatus } from './goal';
+import { PeriodStatus } from './accounting';
 
 export const LogTemplates = {
   USER_REGISTER_START: 'User[email={email}] register start',
@@ -34,6 +35,18 @@ export const LogTemplates = {
   AUTH_GUARD_DENIED: 'Auth[token={token}] guard denied: {reason}',
   RBAC_GRANTED: 'RBAC[user_id={id}] role granted required={roles}',
   RBAC_DENIED: 'RBAC[user_id={id}] role denied required={roles}',
+  PERIOD_LIST_START: `AccountingPeriod list start statuses=${Object.values(PeriodStatus).join(',')}`,
+  PERIOD_GUARD_LOCK_START: 'AccountingPeriod[period={period}] guard lock start tx={tx}',
+  PERIOD_GUARD_LOCKED: 'AccountingPeriod[id={id}] guard locked period={period} status={status}',
+  PERIOD_GUARD_RETRY: 'AccountingPeriod[period={period}] guard retry attempt={attempt} reason={reason}',
+  PERIOD_CLOSE_START: 'AccountingPeriod[period={period}] close start by admin={adminId}',
+  PERIOD_CLOSE_SUCCESS: 'AccountingPeriod[id={id}] close success period={period} version={version} users={users}',
+  PERIOD_CLOSE_FAILED: 'AccountingPeriod[period={period}] close failed: {field} {reason}',
+  PERIOD_REOPEN_START: 'AccountingPeriod[period={period}] reopen start by admin={adminId}',
+  PERIOD_REOPEN_SUCCESS: 'AccountingPeriod[id={id}] reopen success period={period} versionKept={version}',
+  PERIOD_REOPEN_FAILED: 'AccountingPeriod[period={period}] reopen failed: {field} {reason}',
+  PERIOD_SNAPSHOT_BUILT: 'AccountingSnapshot[period={period}] version={version} built for user={userId} total={total}',
+  PERIOD_WRITE_BLOCKED: 'AccountingPeriod[period={period}] activity write blocked status={status} action={action}',
   HEALTH_CHECK: 'System[health] backend health check'
 } as const;
 

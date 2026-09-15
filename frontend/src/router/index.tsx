@@ -1,5 +1,6 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { AppShell } from '../App';
+import { Accounting } from '../pages/Accounting';
 import { Dashboard } from '../pages/Dashboard';
 import { Activities } from '../pages/Activities';
 import { Goals } from '../pages/Goals';
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
       { path: 'activities', element: <Activities /> },
       { path: 'goals', element: <Goals /> },
       { path: 'ranking', element: <Ranking /> },
+      { path: 'accounting', element: <Accounting /> },
       { path: 'profile', element: <Profile /> },
       { path: 'audit', element: <AuditLog /> }
     ]

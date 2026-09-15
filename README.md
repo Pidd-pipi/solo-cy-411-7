@@ -30,6 +30,7 @@ docker compose down
 - 目标管理展示目标完成进度和到期区间
 - 排行榜按地区和时间段查看用户低碳排名
 - 管理员查看操作审计日志
+- **碳账期结账**：管理员按自然月结账，生成成员活动汇总与个人明细快照；结账月冻结，仪表盘、目标、排行统一读快照；填写原因可重开，旧快照留存为历史版本
 
 ## 本地开发方式（备选）
 
@@ -121,6 +122,34 @@ npm run dev
 - Activity：`database/init.sql` → `backend/src/models/activity.ts` → `backend/src/services/activityService.ts` → `backend/src/controllers/activityController.ts` → `backend/src/routes/activities.ts` → `frontend/src/api/activity.ts` → `frontend/src/stores/activityStore.ts` → `frontend/src/pages/Activities.tsx`
 - Goal：`database/init.sql` → `backend/src/models/goal.ts` → `backend/src/services/goalService.ts` → `backend/src/controllers/goalController.ts` → `backend/src/routes/goals.ts` → `frontend/src/api/goal.ts` → `frontend/src/stores/goalStore.ts` → `frontend/src/pages/Goals.tsx`
 - CarbonFactor：`database/init.sql` → `backend/src/models/carbonFactor.ts` → `backend/src/services/factorService.ts` → `backend/src/controllers/factorController.ts` → `backend/src/routes/factors.ts` → `frontend/src/api/factor.ts` → `frontend/src/pages/Activities.tsx`
+- AccountingPeriod / AccountingSnapshot（碳账期）：`database/init.sql` → `backend/src/models/accountingPeriod.ts`、`accountingSnapshot.ts` → `backend/src/services/accountingService.ts`（同时被 `activityService.ts`、`rankingService.ts` 复用）→ `backend/src/controllers/accountingController.ts` → `backend/src/routes/accounting.ts` → `frontend/src/api/accounting.ts` → `frontend/src/stores/periodStore.ts` → `frontend/src/pages/Accounting.tsx`（活动页 `Activities.tsx` 读取冻结标记）
+
+## 碳账期结账（账期冻结 / 快照 / 重开）
+
+- 管理员在 `/accounting` 按自然月（`YYYY-MM`）**发起结账**：系统为每个成员生成一条当月汇总（总量、活动数、分类合计）与个人明细快照，账期置为 `closed`、版本号 +1。
+- 结账后该月活动**不能补录、调整或撤销**：`POST/PATCH/DELETE /activities` 命中结账月一律返回 `409 PERIOD_CLOSED`；未结账月的增删改、分类筛选、分页保持原样可用。
+- **统一读取快照**：仪表盘（`/activities` 与 `useCarbonStats`）、目标进度（`summarize`）、地区排行对落在已结账月的日期段都读当前版本快照，未结账段读实时数据，跨月区间在服务端分段合并且不重不漏。
+- 成员只能通过 `GET /accounting/periods/:period/result` 查看**本人**账期结果；跨成员汇总、历史版本仅管理员可访问（`requireRole=admin`）。
+- 管理员**填写原因后可重开**：账期回到实时数据，旧快照与版本号保留；再次结账生成新版本，历史版本可在管理员面板查看。
+
+接口（均需登录）：
+
+| 方法 & 路径 | 权限 | 说明 |
+| --- | --- | --- |
+| `GET /accounting/periods` | 登录用户 | 账期状态列表（驱动锁标记 / 月份选择） |
+| `POST /accounting/periods/:period/close` | admin | 结账并生成快照版本 |
+| `PATCH /accounting/periods/:period/reopen` | admin | 重开，body 必须含 `reason` |
+| `GET /accounting/periods/:period/result?version=` | 登录用户 | **仅本人**当前/指定版本汇总与明细 |
+| `GET /accounting/periods/:period/summaries?version=` | admin | 全成员汇总（不含明细） |
+| `GET /accounting/periods/:period/versions` | admin | 历史版本列表 |
+
+**并发保证**：结账与同期活动写入共用同一把账期行锁。两者都在**一个固定连接的事务**里先 `INSERT IGNORE` 账期行、再 `SELECT ... FOR UPDATE` 取锁：活动写事务在改动 `activities` 前先拿到该月 X 锁并持有到提交，结账在聚合前抢同一把锁。因此无论是“结账先提交”还是“旧日期写入在结账提交后才提交”，两者都**恰好一个成功**——锁账落库后不可能再写进旧日期活动，从根上避免汇总、目标、排行互相矛盾。首次结账的 gap-lock 死锁（MySQL errno 1213/1205）由有限次重试收敛。
+
+**已存在数据库升级**：新表已写入 `database/init.sql`（仅对全新数据卷生效）。已初始化的命名卷请执行幂等脚本：
+
+```bash
+docker compose exec -T db mysql -ucarbontrack_user -pcarbontrack_pwd carbontrack_db < database/migrations/002_accounting_periods.sql
+```
 
 ## 横切关注点
 

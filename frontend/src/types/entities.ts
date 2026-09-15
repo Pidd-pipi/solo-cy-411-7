@@ -68,3 +68,64 @@ export interface RankingItem {
   totalCarbon: number;
 }
 
+export enum PeriodStatus {
+  OPEN = 'open',
+  CLOSED = 'closed'
+}
+
+export interface AccountingPeriod {
+  id: number;
+  period: string;
+  status: PeriodStatus;
+  currentVersion: number;
+  closedBy?: number | null;
+  closedAt?: string | null;
+  reopenReason?: string | null;
+  reopenedBy?: number | null;
+  reopenedAt?: string | null;
+  createdAt?: string;
+}
+
+export type SnapshotByCategory = Partial<Record<ActivityCategory, number>>;
+
+export interface MyPeriodResult {
+  period: string;
+  status: PeriodStatus;
+  closed: boolean;
+  version: number;
+  start: string;
+  end: string;
+  region?: string;
+  activityCount: number;
+  totalCarbon: number;
+  byCategory: SnapshotByCategory;
+  detail: Activity[];
+}
+
+export interface PeriodMemberSummary {
+  userId: number;
+  region: string;
+  activityCount: number;
+  totalCarbon: number;
+  byCategory: SnapshotByCategory;
+}
+
+export interface PeriodSummariesResponse {
+  period: string;
+  status: PeriodStatus;
+  version: number;
+  members: PeriodMemberSummary[];
+}
+
+export interface PeriodVersion {
+  version: number;
+  createdAt: string;
+  memberCount: number;
+}
+
+export interface PeriodVersionsResponse {
+  period: string;
+  currentVersion: number;
+  versions: PeriodVersion[];
+}
+

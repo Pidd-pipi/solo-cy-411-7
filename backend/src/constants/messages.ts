@@ -9,5 +9,7 @@ export const Messages = {
   GOAL_UPDATED: 'Goal status updated',
   FACTOR_CREATED: 'Carbon factor stored for region matching',
   AUDIT_LOGGED: 'Audit log captured',
+  PERIOD_CLOSED: 'Accounting period closed and member snapshots frozen',
+  PERIOD_REOPENED: 'Accounting period reopened and restored to live data',
   BACKEND_SHARED: 'Shared backend/frontend copy used by coupled message constants'
 } as const;

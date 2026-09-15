@@ -6,6 +6,7 @@ import { ActivityCard } from '../components/common/ActivityCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ActivityCategory, ACTIVITY_CATEGORY_LABELS } from '../constants/activity';
 import { useActivityStore } from '../stores/activityStore';
+import { usePeriodStore } from '../stores/periodStore';
 import { useAuth } from '../hooks/useAuth';
 import { usePagination } from '../hooks/usePagination';
 import { Messages } from '../constants/messages';
@@ -16,6 +17,7 @@ export function Activities() {
   const rows = useActivityStore((state) => state.rows);
   const load = useActivityStore((state) => state.load);
   const add = useActivityStore((state) => state.add);
+  const isDateClosed = usePeriodStore((state) => state.isDateClosed);
   const { token } = useAuth();
   const filtered = useMemo(() => (category ? rows.filter((row) => row.category === category) : rows), [rows, category]);
   const pagination = usePagination(filtered, 5);
@@ -43,7 +45,9 @@ export function Activities() {
         options={Object.values(ActivityCategory).map((value) => ({ value, label: ACTIVITY_CATEGORY_LABELS[value] }))}
       />
       <div className="card-grid">
-        {pagination.currentRows.length ? pagination.currentRows.map((activity) => <ActivityCard key={activity.id} activity={activity} />) : <EmptyState text="暂无活动记录" />}
+        {pagination.currentRows.length
+          ? pagination.currentRows.map((activity) => <ActivityCard key={activity.id} activity={activity} locked={isDateClosed(activity.recordDate)} />)
+          : <EmptyState text="暂无活动记录" />}
       </div>
       <Pagination current={pagination.page} pageSize={pagination.pageSize} total={pagination.total} onChange={(page, size) => { pagination.setPage(page); pagination.setPageSize(size); }} />
       <Modal title="新增活动" open={open} onCancel={() => setOpen(false)} footer={null} destroyOnClose>
@@ -51,7 +55,12 @@ export function Activities() {
           layout="vertical"
           initialValues={{ category: ActivityCategory.TRANSPORT, subType: 'metro', unit: 'km', recordDate: dayjs() }}
           onFinish={async (values) => {
-            await add({ ...values, recordDate: values.recordDate.format('YYYY-MM-DD') });
+            const recordDate = values.recordDate.format('YYYY-MM-DD');
+            if (isDateClosed(recordDate)) {
+              message.warning(Messages.FRONTEND_PERIOD_CLOSED);
+              return;
+            }
+            await add({ ...values, recordDate });
             message.success(Messages.FRONTEND_ACTIVITY_SAVED);
             setOpen(false);
           }}
