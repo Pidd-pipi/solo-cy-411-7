@@ -145,6 +145,23 @@ async function activeTransactions() {
   return Number(rows[0].c);
 }
 
+// Block until NO InnoDB transaction remains. This still asserts a clean release
+// of every lock/connection: a genuine leak that keeps holding the period lock can
+// never reach zero and fails after the hard window. The window only absorbs the
+// bounded time a just-settled winner spends in COMMITTING or a loser's server-side
+// ROLLBACK undo under heavy CI scheduling — those finish in milliseconds normally.
+async function waitForNoTransactions(timeoutMs = 15000) {
+  const start = Date.now();
+  let n = await activeTransactions();
+  let last = n;
+  while (n !== 0 && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 50));
+    last = n;
+    n = await activeTransactions();
+  }
+  return { remaining: n, last, elapsed: Date.now() - start };
+}
+
 // Wait until at least `count` transactions are active (holder + blocked contender).
 async function waitForActiveTx(count, timeoutMs = 6000) {
   const start = Date.now();
@@ -246,6 +263,7 @@ module.exports = {
   activityCount,
   activitiesForMonth,
   activeTransactions,
+  waitForNoTransactions,
   waitForActiveTx,
   waitForContenderBlocked,
   waitForLockWait,

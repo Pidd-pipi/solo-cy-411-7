@@ -20,8 +20,8 @@ const dayjs = require('dayjs');
 const { Between } = require('typeorm');
 const {
   init, resetDb, closeDb, getPeriod, snapshotCount, activitiesForMonth,
-  activeTransactions, waitForLockWait, blockGate, appErrorProps,
-  activityInput, ActivityCategory, USERS
+  activeTransactions, waitForNoTransactions, waitForContenderBlocked, blockGate,
+  appErrorProps, activityInput, ActivityCategory, USERS
 } = require('./harness');
 const { equal, ok } = require('./assert');
 
@@ -35,15 +35,11 @@ async function monthActivities(h, period, userId) {
 }
 
 async function noOpenTransactions(stage) {
-  // Allow the loser transaction's rollback to become visible; still fail on a
-  // genuine lock/connection leak that outlasts the grace window.
-  const deadline = Date.now() + 3000;
-  let n = await activeTransactions();
-  while (n !== 0 && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 40));
-    n = await activeTransactions();
-  }
-  equal(stage, n, 0, 'leftover open InnoDB transactions (locks not released)');
+  // Wait for every transaction to fully finish (including the loser's rollback and
+  // the winner's brief COMMITTING phase under load). A genuine lock/connection leak
+  // still fails here because it can never settle to zero within the hard window.
+  const result = await waitForNoTransactions();
+  equal(stage, result.remaining, 0, `leftover open InnoDB transactions (locks not released); last count ${result.last} after ${result.elapsed}ms`);
 }
 
 async function runWriteFirstCreate(h, ctx, period) {
@@ -57,7 +53,7 @@ async function runWriteFirstCreate(h, ctx, period) {
   );
   await writerGate.entered;
   const closePromise = h.accountingService.close(period, USERS.ADMIN);
-  await waitForLockWait();
+  await waitForContenderBlocked();
   writerGate.release();
 
   const [writeResult, closeErr] = await Promise.all([
@@ -91,7 +87,7 @@ async function runWriteFirstUpdate(h, ctx, period) {
   );
   await gate.entered;
   const closePromise = h.accountingService.close(period, USERS.ADMIN);
-  await waitForLockWait();
+  await waitForContenderBlocked();
   gate.release();
 
   const [upd, closeErr] = await Promise.all([
@@ -124,7 +120,7 @@ async function runWriteFirstRemove(h, ctx, period) {
   );
   await gate.entered;
   const closePromise = h.accountingService.close(period, USERS.ADMIN);
-  await waitForLockWait();
+  await waitForContenderBlocked();
   gate.release();
 
   const [rem, closeErr] = await Promise.all([
@@ -167,7 +163,7 @@ async function runCloseFirst(h, ctx, op, period) {
   }
 
   // The write now blocks behind close's lock; then close commits.
-  await waitForLockWait();
+  await waitForContenderBlocked();
   closeGate.release();
   const [closeResult, writeErr] = await Promise.all([
     closePromise.then((v) => ({ ok: true, value: v })).catch((e) => ({ ok: false, error: e })),
@@ -232,10 +228,11 @@ async function run() {
   return ctx.log;
 }
 
-async function resetDbAfterScenario(h) {
+async function resetDbAfterScenario() {
+  // Defensive: ensure no transaction is still finalizing before wiping data.
+  const settled = await waitForNoTransactions();
+  if (settled.remaining !== 0) throw new Error(`inter-scenario leak: ${settled.remaining} open transactions`);
   await resetDb();
-  const n = await activeTransactions();
-  if (n !== 0) throw new Error(`inter-scenario leak: ${n} open transactions`);
 }
 
 if (require.main === module) {

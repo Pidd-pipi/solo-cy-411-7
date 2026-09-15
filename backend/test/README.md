@@ -52,6 +52,24 @@ npm run test:accounting:e2e
 
 不设置环境变量时，默认连接本机 `127.0.0.1:3307` 的 `ct/ctpw@carbontrack_test`。
 
+### 数据库版本兼容（MySQL 8 / MariaDB 10.x）
+
+启动连通性检查通过版本无关的
+
+```sql
+SHOW VARIABLES WHERE Variable_name IN ('transaction_isolation','tx_isolation')
+```
+
+读取隔离级别：MySQL 8 只有 `transaction_isolation`，MariaDB 10.x（及 MySQL 5.7）只有
+`tx_isolation`。命令不再硬编码其中任何一个，因此不会在 MySQL 8 上以
+`Unknown system variable 'tx_isolation'` 在检查开始前直接退出；返回哪个变量就读哪个，
+并在非 `REPEATABLE-READ` 时给出告警。并发观察（`information_schema.processlist` /
+`innodb_trx`、`SELECT ... FOR UPDATE`）在两类引擎上语义一致。
+
+`npm run test:accounting` 即使中途有用例失败也会执行完所有迭代，最后只要存在任一非零退出码
+就整体返回非零；失败用例照常打印阶段、期望/实际状态码与数据库回读结果，不跳过、不降低断言。
+
+
 ## 并发是如何被真实制造的
 
 - 生产代码里 `runWithPeriodLocks(periods, fn, gates?)` 的 `gates` 是**可选测试门闩**，默认 `{}`，
